@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "suki手办",
+    "slug": "yuzhou-ai-figure",
+    "scheme": "yuzhouaifigure",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#FAF9F7"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "用于扫描屿宙智能底座二维码"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "用于录制并制作屿宙AI手办的自定义闹铃"
+        }
+      ]
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yuzhou.shouban",
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "用于发现并配置屿宙AI手办智能底座",
+        "NSBluetoothPeripheralUsageDescription": "用于发现并配置屿宙AI手办智能底座",
+        "NSCameraUsageDescription": "用于扫描智能底座二维码",
+        "NSMicrophoneUsageDescription": "用于录制并制作屿宙AI手办的自定义闹铃"
+      }
+    },
+    "android": {
+      "package": "com.yuzhou.shouban",
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.RECORD_AUDIO"
+      ]
+    }
+  }
+}

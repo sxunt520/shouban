@@ -1,0 +1,26 @@
+{
+  "name": "figure-companion-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/api",
+    "apps/mobile"
+  ],
+  "scripts": {
+    "dev:api": "npm run start:dev --workspace @figure/api",
+    "dev:mobile": "npm run start --workspace @figure/mobile",
+    "build:api": "npm run build --workspace @figure/api",
+    "logs:android": "npm run logs:android --workspace @figure/mobile",
+    "logs:android:crash": "npm run logs:android:crash --workspace @figure/mobile",
+    "typecheck": "npm run typecheck --workspace @figure/api && npm run typecheck --workspace @figure/mobile",
+    "simulate:device": "npm run simulate:device --workspace @figure/api"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~3.2.3",
+    "react-dom": "18.2.0",
+    "react-native-web": "~0.19.10"
+  }
+}

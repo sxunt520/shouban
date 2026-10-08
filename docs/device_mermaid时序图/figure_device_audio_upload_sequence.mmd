@@ -1,0 +1,120 @@
+sequenceDiagram
+    autonumber
+    participant Trigger as 用户按键 / 云端命令
+    participant Entry as record_and_upload()
+    participant WS as record_and_stream_websocket()
+    participant HTTP as record_and_upload_http()
+    participant Device as device_set_state()
+
+    Trigger->>Entry: 触发语音录制
+    Entry->>WS: 尝试 WebSocket 实时语音流
+
+    alt WebSocket 成功
+        WS-->>Entry: VOICE_STREAM_SUCCESS
+        Entry->>Device: 调整状态为 LISTENING / THINKING / IDLE
+        Entry-->>Trigger: 结束
+    else WebSocket 不可用
+        WS-->>Entry: VOICE_STREAM_UNAVAILABLE
+        Entry->>HTTP: 进入 HTTP WAV 回退路径
+        HTTP-->>Entry: 返回上传结果
+        Entry->>Device: 更新状态
+        Entry-->>Trigger: 结束
+    else WebSocket 失败
+        WS-->>Entry: VOICE_STREAM_FAILED
+        Entry->>Device: 进入 ERROR 或恢复状态
+        Entry-->>Trigger: 返回失败
+    end
+
+---
+
+sequenceDiagram
+    autonumber
+    participant UI as 用户/命令
+    participant R as record_and_upload()
+    participant RS as record_and_stream_websocket()
+    participant B as build_voice_websocket_url()
+    participant WS as esp_websocket_client
+    participant API as /device/conversation/stream
+    participant SM as stream_microphone_pcm()
+    participant VAD as VAD / 静音检测
+    participant PR as play_realtime_voice_reply()
+    participant DL as download_and_play_audio()
+
+    UI->>R: 触发语音采集
+    R->>RS: record_and_stream_websocket(...)
+    RS->>B: 生成 ws:// / wss:// URL
+    B-->>RS: 返回目标 URL
+    RS->>WS: esp_websocket_client_init()
+    RS->>WS: esp_websocket_client_start()
+    WS->>API: 建立连接
+    API-->>WS: 连接成功
+    RS->>WS: 发送 {"type":"audio.start"}
+    API-->>WS: {"type":"session.ready"}
+
+    RS->>SM: stream_microphone_pcm(client,...)
+    loop 实时采集
+        SM->>SM: i2s_channel_read()
+        SM->>VAD: 计算音量与静默时长
+        VAD-->>SM: 判断 speech_detected / silence
+        SM->>WS: esp_websocket_client_send_bin()
+        WS->>API: 实时 PCM 流
+    end
+
+    SM-->>RS: 采集结束
+    RS->>WS: 发送 {"type":"audio.end"}
+    API-->>WS: {"type":"conversation.accepted"}
+
+    alt hasText == true
+        RS->>PR: play_realtime_voice_reply()
+        PR->>PR: device_set_state(THINKING)
+        loop 处理 reply.audio
+            API-->>WS: {"type":"reply.audio", "audioPath": "..."}
+            PR->>DL: download_and_play_audio(audio_path)
+            DL-->>PR: 播放完成
+            PR->>WS: 发送 {"type":"reply.audio.ack"}
+        end
+        API-->>WS: {"type":"reply.completed"}
+        PR->>WS: 发送 {"type":"reply.done"}
+        PR->>PR: device_set_state(IDLE)
+    else hasText == false
+        RS->>RS: 直接回到空闲状态
+    end
+
+---
+
+sequenceDiagram
+    autonumber
+    participant UI as 用户/命令
+    participant R as record_and_upload()
+    participant RH as record_and_upload_http()
+    participant M as record_microphone_wav()
+    participant HB as http_binary_post()
+    participant HC as esp_http_client
+    participant API as /device/conversation/audio
+    participant JSON as cJSON_Parse
+
+    UI->>R: 启动录音
+    R->>RH: 触发 HTTP 回退流程
+    RH->>RH: device_set_state(LISTENING)
+    RH->>M: record_microphone_wav(...)
+    M->>M: i2s_channel_read() 采集麦克风
+    M->>M: 组装 WAV 文件头
+    M-->>RH: 返回 wav buffer / wav_size
+
+    RH->>HB: http_binary_post(..., wav, wav_size, "audio/wav", &http_response)
+    HB->>HC: esp_http_client_init / set_method / set_post_field
+    HC->>API: POST 二进制音频
+    API-->>HC: 返回 HTTP status
+    HC-->>HB: HTTP_EVENT_ON_DATA
+    HB-->>RH: 返回 status / response
+
+    RH->>JSON: cJSON_Parse(http_response.data)
+    JSON-->>RH: 解析 accepted / text
+
+    alt accepted == true
+        RH->>RH: device_set_state(THINKING)
+        RH-->>R: 返回 true
+    else
+        RH->>RH: device_set_state(ERROR)
+        RH-->>R: 返回 false
+    end

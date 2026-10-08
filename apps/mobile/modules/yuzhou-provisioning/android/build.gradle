@@ -1,0 +1,52 @@
+apply plugin: 'com.android.library'
+
+group = 'com.yuzhou.provisioning'
+version = ''
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+
+// If you want to use the managed Android SDK versions from expo-modules-core, set this to true.
+// The Android SDK versions will be bumped from time to time in SDK releases and may introduce breaking changes in your module code.
+// Most of the time, you may like to manage the Android SDK versions yourself.
+def useManagedAndroidSdkVersions = false
+if (useManagedAndroidSdkVersions) {
+  useDefaultAndroidSdkVersions()
+} else {
+  buildscript {
+    // Simple helper that allows the root project to override versions declared by this library.
+    ext.safeExtGet = { prop, fallback ->
+      rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+    }
+  }
+  project.android {
+    compileSdkVersion safeExtGet("compileSdkVersion", 34)
+    defaultConfig {
+      minSdkVersion safeExtGet("minSdkVersion", 21)
+      targetSdkVersion safeExtGet("targetSdkVersion", 34)
+    }
+  }
+}
+
+android {
+  namespace "com.yuzhou.provisioning"
+  defaultConfig {
+    versionCode 1
+    versionName ""
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // 2.3.1 is the newest Espressif release compiled against Android SDK 34,
+  // which matches Expo SDK 51.
+  implementation 'com.github.espressif:esp-idf-provisioning-android:lib-2.3.1'
+  // The module's public Kotlin class carries EventBus annotations, so expose the
+  // annotation type to the app compiler as well.
+  api 'org.greenrobot:eventbus:3.3.1'
+}

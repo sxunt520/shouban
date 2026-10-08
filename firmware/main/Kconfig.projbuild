@@ -1,0 +1,322 @@
+menu "Figure Board Self-Test"
+
+    config BLINK_LED_STRIP
+        bool
+        default y
+
+    config BLINK_LED_STRIP_BACKEND_RMT
+        bool
+        default y
+
+    config BLINK_GPIO
+        int "On-board addressable RGB LED GPIO"
+        range 0 48
+        default 48
+        help
+            The current ESP32-S3 development board is expected to use GPIO48.
+            Some official ESP32-S3-DevKitC-1 v1.1 boards use GPIO38 instead.
+
+    config FIGURE_WIFI_SSID
+        string "Wi-Fi SSID"
+        default ""
+
+    config FIGURE_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+
+    config FIGURE_API_BASE_URL
+        string "Figure API base URL"
+        default "http://192.168.18.225:3000/v1"
+
+    config FIGURE_DEVICE_HARDWARE_ID
+        string "Development hardware ID"
+        default "ESP32S3-DEMO-001"
+
+    config FIGURE_DEVICE_SECRET
+        string "Development device secret"
+        default "figure-dev-secret-001"
+
+    config FIGURE_DEVICE_PAIRING_CODE
+        string "Development account pairing code"
+        default "FIGURE-0001"
+        help
+            Account claim code printed in the device QR. Production units
+            must use a unique, non-sequential value registered by the factory.
+
+    config FIGURE_HEARTBEAT_INTERVAL_MS
+        int "Heartbeat interval in milliseconds"
+        range 3000 60000
+        default 10000
+
+    config FIGURE_ENABLE_PROVISIONING_BUTTON
+        bool "Enable long-press Wi-Fi provisioning button"
+        default y
+        help
+            Long-press the configured active-low button after boot to erase
+            only the saved Wi-Fi credentials and restart in BLE SETUP mode.
+
+    config FIGURE_PROVISIONING_BUTTON_GPIO
+        int "Wi-Fi provisioning button GPIO"
+        depends on FIGURE_ENABLE_PROVISIONING_BUTTON
+        range 0 48
+        default 0
+        help
+            GPIO0 is the BOOT button on the current development board. Press
+            it only after the firmware has booted normally.
+
+    config FIGURE_PROVISIONING_HOLD_MS
+        int "Provisioning button hold duration in milliseconds"
+        depends on FIGURE_ENABLE_PROVISIONING_BUTTON
+        range 2000 10000
+        default 5000
+
+    config FIGURE_PROVISIONING_POP
+        string "Development BLE proof of possession"
+        default "yuzhou-6055"
+        help
+            Development-only shared PoP used by Security 1. Production units
+            must use a unique secret printed in each device QR code.
+
+    config FIGURE_ENABLE_DISPLAY
+        bool "Enable ST7789 SPI display"
+        default n
+        help
+            Enable the 1.54-inch ST7789 SPI TFT display after its header pins
+            are soldered and connected to the ESP32-S3 breadboard.
+
+    config FIGURE_DISPLAY_WIDTH
+        int "Display width"
+        depends on FIGURE_ENABLE_DISPLAY
+        default 240
+
+    config FIGURE_DISPLAY_HEIGHT
+        int "Display height"
+        depends on FIGURE_ENABLE_DISPLAY
+        default 240
+
+    config FIGURE_DISPLAY_SPI_HOST
+        int "Display SPI host number"
+        depends on FIGURE_ENABLE_DISPLAY
+        default 2
+
+    config FIGURE_DISPLAY_PIN_SCLK
+        int "Display SCL/SCLK GPIO"
+        depends on FIGURE_ENABLE_DISPLAY
+        default 21
+
+    config FIGURE_DISPLAY_PIN_MOSI
+        int "Display SDA/MOSI GPIO"
+        depends on FIGURE_ENABLE_DISPLAY
+        default 47
+
+    config FIGURE_DISPLAY_PIN_DC
+        int "Display DC GPIO"
+        depends on FIGURE_ENABLE_DISPLAY
+        default 40
+
+    config FIGURE_DISPLAY_PIN_RST
+        int "Display RST GPIO"
+        depends on FIGURE_ENABLE_DISPLAY
+        default 45
+
+    config FIGURE_DISPLAY_PIN_CS
+        int "Display CS GPIO (-1 if tied to GND)"
+        depends on FIGURE_ENABLE_DISPLAY
+        default 41
+
+    config FIGURE_DISPLAY_PIN_BL
+        int "Display BL/backlight GPIO (-1 if tied to 3V3)"
+        depends on FIGURE_ENABLE_DISPLAY
+        default 42
+
+    config FIGURE_ENABLE_NFC
+        bool "Enable MFRC522 NFC/RFID reader"
+        default y
+        help
+            Enable the 13.56 MHz MFRC522 reader on a dedicated SPI bus. The
+            reader reports ISO/IEC 14443A tag UIDs, including 7-byte NTAG213
+            UIDs. IRQ is not required because the reader is polled.
+
+    config FIGURE_NFC_SPI_HOST
+        int "MFRC522 SPI host number"
+        depends on FIGURE_ENABLE_NFC
+        default 1
+
+    config FIGURE_NFC_PIN_CS
+        int "MFRC522 SDA/SS GPIO"
+        depends on FIGURE_ENABLE_NFC
+        range 0 48
+        default 10
+
+    config FIGURE_NFC_PIN_SCK
+        int "MFRC522 SCK GPIO"
+        depends on FIGURE_ENABLE_NFC
+        range 0 48
+        default 12
+
+    config FIGURE_NFC_PIN_MOSI
+        int "MFRC522 MOSI GPIO"
+        depends on FIGURE_ENABLE_NFC
+        range 0 48
+        default 11
+
+    config FIGURE_NFC_PIN_MISO
+        int "MFRC522 MISO GPIO"
+        depends on FIGURE_ENABLE_NFC
+        range 0 48
+        default 13
+
+    config FIGURE_NFC_PIN_RST
+        int "MFRC522 RST GPIO"
+        depends on FIGURE_ENABLE_NFC
+        range 0 48
+        default 9
+
+    config FIGURE_NFC_POLL_INTERVAL_MS
+        int "MFRC522 poll interval in milliseconds"
+        depends on FIGURE_ENABLE_NFC
+        range 50 1000
+        default 150
+
+    config FIGURE_ENABLE_SPEAKER
+        bool "Enable HT517 I2S speaker"
+        default n
+        help
+            Enable the HT517 I2S amplifier and play a short, low-volume
+            three-note self-test during startup.
+
+    config FIGURE_SPEAKER_PIN_BCLK
+        int "HT517 BCLK / DI0 GPIO"
+        depends on FIGURE_ENABLE_SPEAKER
+        default 15
+
+    config FIGURE_SPEAKER_PIN_LRCK
+        int "HT517 LRCK / DI1 GPIO"
+        depends on FIGURE_ENABLE_SPEAKER
+        default 16
+
+    config FIGURE_SPEAKER_PIN_DATA
+        int "HT517 SDIN / DI2 GPIO"
+        depends on FIGURE_ENABLE_SPEAKER
+        default 7
+
+    config FIGURE_ENABLE_MICROPHONE
+        bool "Enable INMP441 I2S microphone"
+        default n
+        help
+            Enable the INMP441 I2S microphone and run a 20-second input-level
+            self-test during startup. Connect L/R to GND to select the left
+            channel. The microphone uses a separate I2S port from the speaker.
+
+    config FIGURE_MICROPHONE_PIN_SCK
+        int "INMP441 SCK/BCLK GPIO"
+        depends on FIGURE_ENABLE_MICROPHONE
+        default 8
+
+    config FIGURE_MICROPHONE_PIN_WS
+        int "INMP441 WS/LRCLK GPIO"
+        depends on FIGURE_ENABLE_MICROPHONE
+        default 4
+
+    config FIGURE_MICROPHONE_PIN_SD
+        int "INMP441 SD/DOUT GPIO"
+        depends on FIGURE_ENABLE_MICROPHONE
+        default 6
+
+    config FIGURE_VAD_THRESHOLD
+        int "VAD minimum average PCM level threshold"
+        depends on FIGURE_ENABLE_MICROPHONE
+        range 50 5000
+        default 350
+        help
+            Minimum average absolute PCM level treated as speech. Firmware
+            measures the ambient noise floor at the start of each recording
+            and raises the effective threshold automatically when necessary.
+
+    config FIGURE_VAD_SILENCE_MS
+        int "VAD silence duration before stopping"
+        depends on FIGURE_ENABLE_MICROPHONE
+        range 400 3000
+        default 600
+
+    config FIGURE_VAD_START_TIMEOUT_MS
+        int "VAD no-speech timeout"
+        depends on FIGURE_ENABLE_MICROPHONE
+        range 1500 8000
+        default 4000
+
+    config FIGURE_VAD_MIN_RECORD_MS
+        int "VAD minimum recording duration"
+        depends on FIGURE_ENABLE_MICROPHONE
+        range 500 3000
+        default 500
+
+    config FIGURE_ENABLE_TALK_BUTTON
+        bool "Enable active-low talk button interface"
+        default y
+        help
+            Uses the ESP32 internal pull-up. Connect the configured GPIO to
+            GND through a momentary normally-open push button.
+
+    config FIGURE_TALK_BUTTON_GPIO
+        int "Talk button GPIO"
+        depends on FIGURE_ENABLE_TALK_BUTTON
+        range 0 48
+        default 39
+
+    config FIGURE_TALK_BUTTON_DEBOUNCE_MS
+        int "Talk button debounce time"
+        depends on FIGURE_ENABLE_TALK_BUTTON
+        range 10 200
+        default 40
+
+    config FIGURE_ENABLE_CONTROL_BUTTONS
+        bool "Enable active-low volume/function/sleep buttons"
+        default y
+        help
+            Uses the ESP32 internal pull-up. Connect each configured GPIO to
+            GND through a momentary normally-open push button.
+
+    config FIGURE_VOLUME_UP_BUTTON_GPIO
+        int "Volume up button GPIO"
+        depends on FIGURE_ENABLE_CONTROL_BUTTONS
+        range 0 48
+        default 5
+
+    config FIGURE_VOLUME_UP_ALT_BUTTON_GPIO
+        int "Alternate volume up button GPIO (-1 to disable)"
+        depends on FIGURE_ENABLE_CONTROL_BUTTONS
+        range -1 48
+        default 1
+
+    config FIGURE_VOLUME_DOWN_BUTTON_GPIO
+        int "Volume down / mute button GPIO"
+        depends on FIGURE_ENABLE_CONTROL_BUTTONS
+        range 0 48
+        default 14
+
+    config FIGURE_FUNCTION_BUTTON_GPIO
+        int "Function button GPIO"
+        depends on FIGURE_ENABLE_CONTROL_BUTTONS
+        range 0 48
+        default 17
+
+    config FIGURE_SLEEP_BUTTON_GPIO
+        int "Sleep button GPIO"
+        depends on FIGURE_ENABLE_CONTROL_BUTTONS
+        range 0 48
+        default 18
+
+    config FIGURE_CONTROL_BUTTON_DEBOUNCE_MS
+        int "Control button debounce time"
+        depends on FIGURE_ENABLE_CONTROL_BUTTONS
+        range 10 200
+        default 40
+
+    config FIGURE_CONTROL_BUTTON_LONG_PRESS_MS
+        int "Control button long-press duration"
+        depends on FIGURE_ENABLE_CONTROL_BUTTONS
+        range 600 3000
+        default 1500
+
+endmenu
