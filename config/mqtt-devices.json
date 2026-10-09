@@ -1,0 +1,16 @@
+[
+  {
+    "key": "a", "id": "11111111-1111-4111-8111-111111111111",
+    "hardwareId": "MQTT-SIM-A", "externalDeviceId": "020000000001",
+    "mac": "02:00:00:00:00:01", "clientId": "shouban-sim-a",
+    "name": "模拟底座 A", "pairingCode": "MQTT-A-0001",
+    "initialVolume": 60, "username": "sim-a", "password": "local-sim-a-only"
+  },
+  {
+    "key": "b", "id": "22222222-2222-4222-8222-222222222222",
+    "hardwareId": "MQTT-SIM-B", "externalDeviceId": "020000000002",
+    "mac": "02:00:00:00:00:02", "clientId": "shouban-sim-b",
+    "name": "模拟底座 B", "pairingCode": "MQTT-B-0001",
+    "initialVolume": 40, "username": "sim-b", "password": "local-sim-b-only"
+  }
+]

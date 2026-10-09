@@ -4,7 +4,8 @@
   "private": true,
   "workspaces": [
     "apps/api",
-    "apps/mobile"
+    "apps/mobile",
+    "apps/device-simulator"
   ],
   "scripts": {
     "dev:api": "npm run start:dev --workspace @figure/api",
@@ -13,7 +14,18 @@
     "logs:android": "npm run logs:android --workspace @figure/mobile",
     "logs:android:crash": "npm run logs:android:crash --workspace @figure/mobile",
     "typecheck": "npm run typecheck --workspace @figure/api && npm run typecheck --workspace @figure/mobile",
-    "simulate:device": "npm run simulate:device --workspace @figure/api"
+    "simulate:device": "npm run simulate:device --workspace @figure/api",
+    "dev:mqtt": "node scripts/partner-broker.mjs",
+    "simulate:mqtt": "node scripts/partner-simulator.mjs",
+    "dev:partner": "node scripts/partner-dev.mjs",
+    "test:mqtt": "node scripts/test-mqtt.mjs",
+    "db:migrate:mqtt": "node scripts/migrate-device-integration.mjs",
+    "test:voice": "node scripts/test-voice.mjs",
+    "test:r1m": "node scripts/test-r1m.mjs",
+    "accept:partner": "node scripts/partner-acceptance.mjs",
+    "export:partner": "node scripts/export-partner.mjs",
+    "simulate:r1m": "node apps/device-simulator/src/r1m.mjs",
+    "simulate:r1m-mqtt": "node apps/device-simulator/src/r1m-mqtt.mjs"
   },
   "engines": {
     "node": ">=20"

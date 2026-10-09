@@ -43,6 +43,19 @@ export interface Device {
   status: 'online' | 'offline';
   lastSeenAt: string | null;
   volume: number;
+  desiredVolume?: number | null;
+  protocolProfile?: string;
+  capabilities?: { setVolume: boolean; conversation: boolean; nfc: boolean; offlineAlarms: boolean };
+  referenceVoiceAvailable?: boolean;
+  connectivity?: { network: 'online' | 'unknown'; controlReachable: boolean; voiceActive: boolean; lastEvidenceAt: string | null };
+  nfcSimulator?: boolean;
+  nfcState?: { present: boolean; uid: string | null; lastSeenAt: string | null; matched: boolean; characterId: string | null };
+  speechCommand?: { id: string; text: string; status: CommandStatus; phase: string; errorMessage: string | null; completedAt: string | null } | null;
+  identifyCommand?: { id: string; status: CommandStatus; errorMessage: string | null; completedAt: string | null } | null;
+  volumeCommand?: {
+    id: string; status: CommandStatus; requestedVolume: number; revision: number | null;
+    errorMessage: string | null; expiresAt: string | null; completedAt: string | null;
+  } | null;
 }
 
 export interface Reminder {
@@ -54,6 +67,7 @@ export interface Reminder {
   kind: 'reminder' | 'alarm';
   enabled: boolean;
   lastTriggeredAt: string | null;
+  execution?: { occurrenceAt: string; commandId: string | null; status: string; phase: string | null; message: string | null; completedAt: string | null } | null;
 }
 
 export interface Alarm {
@@ -119,7 +133,10 @@ export type CommandType =
   | 'play_reminder'
   | 'speak_text'
   | 'start_listening'
-  | 'set_volume';
+  | 'set_volume'
+  | 'identify_device';
+
+export type CommandStatus = 'pending' | 'dispatched' | 'succeeded' | 'failed' | 'expired' | 'cancelled';
 
 export interface DeviceCommand {
   id: string;
@@ -128,6 +145,9 @@ export interface DeviceCommand {
   payload: Record<string, unknown>;
   createdAt: string;
   acknowledgedAt: string | null;
+  status?: CommandStatus;
+  failureReason?: string | null;
+  attempts?: number;
 }
 
 export interface DeviceEvent {

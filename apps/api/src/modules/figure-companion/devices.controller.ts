@@ -1,3 +1,4 @@
+import { R1mNfcService } from '../device-integration/r1m-nfc.service';
 import {
   Body,
   Controller,
@@ -6,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -14,7 +16,7 @@ import {
 import { Response } from 'express';
 import { UserAuthGuard, UserRequest } from './auth.guards';
 import {
-  BindDeviceDto,
+  BindDeviceDto, R1mNfcBindingDto, R1mNfcSimulationDto,
   DeviceMessageDto,
   SpeakTextDto,
   UpdateCharacterDto,
@@ -22,11 +24,12 @@ import {
   UpdateVolumeDto,
 } from './dto';
 import { StoreService } from './store.service';
+import { DeviceIntegrationService } from '../device-integration/device-integration.service';
 
 @Controller('devices')
 @UseGuards(UserAuthGuard)
 export class DevicesController {
-  constructor(private readonly store: StoreService) {}
+  constructor(private readonly store: StoreService, private readonly integration: DeviceIntegrationService, private readonly nfc: R1mNfcService) {}
 
   @Get()
   listDevices(@Req() request: UserRequest) {
@@ -39,6 +42,11 @@ export class DevicesController {
     @Param('deviceId') deviceId: string,
   ) {
     return this.store.getDevice(request.user.id, deviceId);
+  }
+
+  @Post('claim-status')
+  partnerClaimStatus(@Req() request: UserRequest, @Body() dto: BindDeviceDto) {
+    return this.store.partnerClaimStatus(request.user.id, dto);
   }
 
   @Post('bind')
@@ -85,6 +93,20 @@ export class DevicesController {
     return this.store.updateVolume(request.user.id, deviceId, dto.volume);
   }
 
+  @Get(':deviceId/nfc-bindings')
+  nfcBindings(@Req() request: UserRequest, @Param('deviceId') id: string) { return this.nfc.list(request.user.id, id); }
+  @Put(':deviceId/nfc-bindings')
+  bindNfc(@Req() request: UserRequest, @Param('deviceId') id: string, @Body() dto: R1mNfcBindingDto) { return this.nfc.bind(request.user.id, id, dto.uid, dto.characterId); }
+  @Delete(':deviceId/nfc-bindings/:uid')
+  unbindNfc(@Req() request: UserRequest, @Param('deviceId') id: string, @Param('uid') uid: string) { return this.nfc.bind(request.user.id, id, uid); }
+  @Post(':deviceId/simulator/nfc')
+  simulateNfc(@Req() request: UserRequest, @Param('deviceId') id: string, @Body() dto: R1mNfcSimulationDto) { return this.nfc.simulate(request.user.id, id, dto.present, dto.uid); }
+
+  @Post(':deviceId/identify')
+  identify(@Req() request: UserRequest, @Param('deviceId') deviceId: string) {
+    return this.integration.requestIdentify(request.user.id, deviceId);
+  }
+
   @Post(':deviceId/speak')
   speakText(
     @Req() request: UserRequest,
@@ -92,6 +114,11 @@ export class DevicesController {
     @Body() dto: SpeakTextDto,
   ) {
     return this.store.speakText(request.user.id, deviceId, dto.text);
+  }
+
+  @Post(':deviceId/playback/stop')
+  stopPlayback(@Req() request: UserRequest, @Param('deviceId') deviceId: string) {
+    return this.integration.stopSpeech(request.user.id, deviceId);
   }
 
   @Post(':deviceId/listen')

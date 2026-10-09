@@ -1,3 +1,4 @@
+import { R1M_PROFILE } from '../device-integration/r1m-control.service';
 import {
   BadRequestException,
   ConflictException,
@@ -44,6 +45,8 @@ import { AsrService, RealtimeAsrResult } from './asr.service';
 import { AiChatService } from './ai-chat.service';
 import { AlarmSoundService } from './alarm-sound.service';
 import { SpeechChunker } from './speech-chunker';
+import { DeviceIntegrationService } from '../device-integration/device-integration.service';
+import { MQTT_ACTIVE_STATUSES, PARTNER_SIM_PROFILE, positiveSetting } from '../device-integration/partner-profile';
 
 interface ConversationSpeechTurn {
   id: string;
@@ -154,12 +157,13 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     private readonly asr: AsrService,
     private readonly aiChat: AiChatService,
     private readonly alarmSounds: AlarmSoundService,
+    private readonly deviceIntegration: DeviceIntegrationService,
   ) {}
 
   async onModuleInit() {
     await this.seedDevelopmentData();
     this.reminderTimer = setInterval(() => {
-      void this.triggerDueReminders();
+      void this.triggerDueReminders().catch(e => this.logger.error(`Reminder scheduler failed: ${e instanceof Error ? e.message : 'unknown error'}`));
       void this.triggerDueAlarms();
     }, 1000);
   }
@@ -223,9 +227,9 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     character.nfcTagUid = uid;
     const saved = await this.characterRepository.save(character);
 
-    const activeDevices = await this.deviceRepository.find({
+    const activeDevices = (await this.deviceRepository.find({
       where: { ownerUserId: userId, lastNfcTagUid: uid },
-    });
+    })).filter(d => d.protocolProfile !== R1M_PROFILE);
     for (const device of activeDevices) {
       const switched = device.characterId !== saved.id;
       device.characterId = saved.id;
@@ -265,7 +269,7 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       order: { createdAt: 'ASC' },
     });
     const characters = await this.characterRepository.find();
-    return devices.map((device) => this.toDeviceView(device, characters));
+    return Promise.all(devices.map((device) => this.toDeviceView(device, characters)));
   }
 
   async getDevice(userId: string, deviceId: string): Promise<DeviceView> {
@@ -283,20 +287,39 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     const character = dto.characterId
       ? await this.requireCharacter(dto.characterId)
       : null;
+    if (device.protocolProfile !== 'legacy') {
+      if (!dto.externalDeviceId || dto.externalDeviceId !== device.externalDeviceId) throw new BadRequestException('认领码与底座身份不匹配');
+      if (character) throw new BadRequestException('当前设备暂不支持同步角色');
+      await this.deviceIntegration.claim(userId, device.id, dto.externalDeviceId, dto.name?.trim());
+      return this.getDevice(userId, device.id);
+    }
     device.ownerUserId = userId;
-    if (character) device.characterId = character.id;
+    if (character) {
+      const referenceVoice = this.deviceIntegration.canUseCloudVoice(device);
+    if (!referenceVoice) this.deviceIntegration.assertSupported(device, 'sync_character');
+      device.characterId = character.id;
+    }
     if (dto.name?.trim()) device.name = dto.name.trim();
-    await this.deviceRepository.save(device);
+    await this.deviceRepository.update(device.id, {
+      ownerUserId: userId, characterId: device.characterId, name: device.name,
+    });
     if (character) {
       await this.enqueueCommand(device.id, 'sync_character', {
         character: this.toDeviceCharacter(character),
       });
     }
-    return this.toDeviceView(device, await this.characterRepository.find());
+    return this.getDevice(userId, device.id);
+  }
+
+  async partnerClaimStatus(userId: string, dto: BindDeviceDto) {
+    const device = await this.deviceRepository.findOneBy({ pairingCode: dto.pairingCode.trim().toUpperCase() });
+    if (!device || ![PARTNER_SIM_PROFILE, R1M_PROFILE].includes(device.protocolProfile) || device.externalDeviceId !== dto.externalDeviceId) throw new NotFoundException('认领码与底座身份不匹配');
+    return { registered: true, online: this.isDeviceOnline(device), claimedByMe: device.ownerUserId === userId, claimedByOther: !!device.ownerUserId && device.ownerUserId !== userId };
   }
 
   async unbindDevice(userId: string, deviceId: string) {
     const device = await this.requireOwnedDevice(userId, deviceId);
+    if (device.protocolProfile !== 'legacy') return this.deviceIntegration.unbind(userId, deviceId);
 
     // Old reminders and queued speech must never reach a future owner. Chat
     // history remains scoped to the old user and is intentionally preserved.
@@ -312,12 +335,10 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       deviceId,
       acknowledgedAt: IsNull(),
     });
-    device.ownerUserId = null;
-    device.characterId = null;
-    device.lastNfcTagUid = null;
-    device.lastNfcAt = null;
-    device.lastNfcMatchedCharacterId = null;
-    await this.deviceRepository.save(device);
+    await this.deviceRepository.update(device.id, {
+      ownerUserId: null, characterId: null, lastNfcTagUid: null,
+      lastNfcAt: null, lastNfcMatchedCharacterId: null,
+    });
 
     return { unbound: true, deviceId };
   }
@@ -327,12 +348,16 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       this.requireOwnedDevice(userId, deviceId),
       this.requireCharacter(characterId),
     ]);
+    if (device.protocolProfile === R1M_PROFILE) { await this.deviceIntegration.selectR1mCharacter(userId, deviceId, character.id); return this.getDevice(userId, deviceId); }
+    const referenceVoice = this.deviceIntegration.canUseCloudVoice(device);
+    if (!referenceVoice) this.deviceIntegration.assertSupported(device, 'sync_character');
     if (device.characterId !== character.id) {
+      this.deviceIntegration.invalidateContext(device.id);
       await this.cancelPendingConversationSpeech(device.id, 'character_switched');
     }
     device.characterId = character.id;
     await this.deviceRepository.save(device);
-    await this.enqueueCommand(device.id, 'sync_character', {
+    if (!referenceVoice) await this.enqueueCommand(device.id, 'sync_character', {
       character: this.toDeviceCharacter(character),
     });
     return this.toDeviceView(device, await this.characterRepository.find());
@@ -342,21 +367,22 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     const nextName = name.trim();
     if (!nextName) throw new BadRequestException('设备名称不能为空');
     const device = await this.requireOwnedDevice(userId, deviceId);
+    if (device.protocolProfile === R1M_PROFILE) { await this.deviceRepository.update({ id: deviceId, ownerUserId: userId }, { name: nextName }); return this.getDevice(userId, deviceId); }
     device.name = nextName;
     await this.deviceRepository.save(device);
     return this.toDeviceView(device, await this.characterRepository.find());
   }
 
   async updateVolume(userId: string, deviceId: string, volume: number) {
+    await this.deviceIntegration.requestVolume(userId, deviceId, volume);
     const device = await this.requireOwnedDevice(userId, deviceId);
-    device.volume = volume;
-    await this.deviceRepository.save(device);
-    await this.enqueueCommand(device.id, 'set_volume', { volume });
     return this.toDeviceView(device, await this.characterRepository.find());
   }
 
   async speakText(userId: string, deviceId: string, text: string) {
     const device = await this.requireOwnedDevice(userId, deviceId);
+    if (device.protocolProfile === R1M_PROFILE) return this.deviceIntegration.requestSpeech(userId, deviceId, text);
+    this.deviceIntegration.assertSupported(device, 'speak_text');
     const character = device.characterId
       ? await this.requireCharacter(device.characterId)
       : null;
@@ -379,6 +405,7 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
 
   async startListening(userId: string, deviceId: string) {
     const device = await this.requireOwnedDevice(userId, deviceId);
+    this.deviceIntegration.assertSupported(device, 'start_listening');
     const pending = await this.commandRepository.findOne({
       where: {
         deviceId: device.id,
@@ -1128,15 +1155,18 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       .catch(() => undefined);
   }
 
-  listReminders(userId: string, deviceId?: string) {
-    return this.reminderRepository.find({
+  async listReminders(userId: string, deviceId?: string) {
+    const reminders = await this.reminderRepository.find({
       where: deviceId ? { userId, deviceId } : { userId },
       order: { scheduledAt: 'ASC' },
     });
+    return Promise.all(reminders.map(async r => ({ ...r, execution: await this.deviceIntegration.cloudReminderExecution(r) })));
   }
 
   async createReminder(userId: string, dto: CreateReminderDto) {
-    await this.requireOwnedDevice(userId, dto.deviceId);
+    const device = await this.requireOwnedDevice(userId, dto.deviceId);
+    if (device.protocolProfile === R1M_PROFILE) return this.deviceIntegration.createCloudReminder(userId, dto);
+    this.deviceIntegration.assertSupported(device, 'play_reminder');
     const scheduledAt = new Date(dto.scheduledAt);
     if (Number.isNaN(scheduledAt.getTime())) {
       throw new BadRequestException('提醒时间格式不正确');
@@ -1157,6 +1187,8 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
 
   async updateReminder(userId: string, reminderId: string, dto: UpdateReminderDto) {
     const reminder = await this.requireReminder(userId, reminderId);
+    const device = await this.deviceRepository.findOneBy({ id: reminder.deviceId });
+    if (device?.protocolProfile === R1M_PROFILE) return this.deviceIntegration.editCloudReminder(userId, reminderId, dto);
     if (dto.title !== undefined) reminder.title = dto.title.trim();
     if (dto.scheduledAt !== undefined) {
       reminder.scheduledAt = new Date(dto.scheduledAt);
@@ -1170,6 +1202,8 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
 
   async deleteReminder(userId: string, reminderId: string) {
     const reminder = await this.requireReminder(userId, reminderId);
+    const device = await this.deviceRepository.findOneBy({ id: reminder.deviceId });
+    if (device?.protocolProfile === R1M_PROFILE) return this.deviceIntegration.editCloudReminder(userId, reminderId);
     await this.reminderRepository.remove(reminder);
     return { deleted: true };
   }
@@ -1184,7 +1218,8 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
   }
 
   async createAlarm(userId: string, dto: CreateAlarmDto): Promise<Alarm> {
-    await this.requireOwnedDevice(userId, dto.deviceId);
+    const device = await this.requireOwnedDevice(userId, dto.deviceId);
+    this.deviceIntegration.assertSupported(device, 'sync_alarms');
     const alarm = this.alarmRepository.create({
       userId,
       deviceId: dto.deviceId,
@@ -1308,7 +1343,7 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     const device = await this.deviceRepository.findOne({
       where: { hardwareId: dto.hardwareId },
     });
-    if (!device || device.deviceSecretHash !== this.hash(dto.deviceSecret)) {
+    if (!device || device.protocolProfile !== 'legacy' || device.deviceSecretHash !== this.hash(dto.deviceSecret)) {
       throw new NotFoundException('未登记的硬件或密钥错误');
     }
     await this.sessionRepository.delete({ expiresAt: LessThanOrEqual(new Date()) });
@@ -1359,29 +1394,25 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getPendingCommands(device: DeviceEntity) {
+    if (device.protocolProfile !== 'legacy') return [];
     await this.expireStaleAlarmCommands(device);
     return this.commandRepository.find({
-      where: { deviceId: device.id, acknowledgedAt: IsNull() },
+      where: { deviceId: device.id, acknowledgedAt: IsNull(), status: In([...MQTT_ACTIVE_STATUSES]) },
       order: { createdAt: 'ASC' },
       take: 1,
     });
   }
 
   async countPendingCommands(device: DeviceEntity) {
+    if (device.protocolProfile !== 'legacy') return 0;
     await this.expireStaleAlarmCommands(device);
     return this.commandRepository.count({
-      where: { deviceId: device.id, acknowledgedAt: IsNull() },
+      where: { deviceId: device.id, acknowledgedAt: IsNull(), status: In([...MQTT_ACTIVE_STATUSES]) },
     });
   }
 
   async acknowledgeCommand(device: DeviceEntity, commandId: string) {
-    const command = await this.commandRepository.findOne({
-      where: { id: commandId, deviceId: device.id },
-    });
-    if (!command) throw new NotFoundException('设备指令不存在');
-    command.acknowledgedAt = new Date();
-    await this.commandRepository.save(command);
-    return { acknowledged: true };
+    return this.deviceIntegration.acknowledgeLegacy(device.id, commandId);
   }
 
   async interruptDeviceConversation(
@@ -1788,6 +1819,44 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       commandId: normalizedCommandId,
       ...recognition,
     };
+  }
+
+  async synthesizeR1mSpeech(deviceId: string, text: string, isCurrent: () => boolean) {
+    const device = await this.deviceRepository.findOneBy({ id: deviceId });
+    if (!device?.ownerUserId || !device.characterId || !isCurrent()) throw new BadRequestException('播报会话已取消');
+    const character = await this.requireCharacter(device.characterId);
+    const speech = await this.tts.synthesize(text, character.voiceId, character.ttsModel);
+    if (!isCurrent()) throw new BadRequestException('播报会话已取消');
+    return speech.audio;
+  }
+
+  async replyToPartnerVoice(deviceId: string, text: string, isCurrent: () => boolean) {
+    const device = await this.deviceRepository.findOneBy({ id: deviceId });
+    if (!device?.ownerUserId || !device.characterId) throw new BadRequestException('请先绑定设备与角色');
+    const owner = device.ownerUserId, characterId = device.characterId;
+    const ensureCurrent = async () => {
+      const current = await this.deviceRepository.findOneBy({ id: deviceId });
+      if (!isCurrent() || current?.ownerUserId !== owner || current.characterId !== characterId) throw new BadRequestException('语音会话已取消或角色已变化');
+    };
+    const character = await this.requireCharacter(characterId);
+    const history = await this.conversationRepository.find({ where: { deviceId, userId: owner, characterId }, order: { createdAt: 'DESC' }, take: 20 });
+    await ensureCurrent();
+    const reply = await this.aiChat.complete(character.prompt?.trim() || `你是${character.name}。${character.description}请简短自然地回答。`, [
+      ...history.reverse().map(message => ({ role: message.role, content: message.content })), { role: 'user' as const, content: text },
+    ]);
+    await ensureCurrent();
+    const speech = await this.tts.synthesize(reply.content, character.voiceId, character.ttsModel);
+    await ensureCurrent();
+    // Partner audio is sent by its session transport, never queued as a legacy speak command.
+    await this.deviceRepository.manager.transaction(async manager => {
+      const current = await manager.findOne(DeviceEntity, { where: { id: deviceId }, lock: { mode: 'pessimistic_write' } });
+      if (!isCurrent() || current?.ownerUserId !== owner || current.characterId !== characterId) throw new BadRequestException('语音会话已取消或角色已变化');
+      await manager.save(ConversationMessageEntity, [
+        manager.create(ConversationMessageEntity, { deviceId, userId: owner, characterId, role: 'user', content: text, source: 'partner_voice' }),
+        manager.create(ConversationMessageEntity, { deviceId, userId: owner, characterId, role: 'assistant', content: reply.content, source: 'partner_voice' }),
+      ]);
+    });
+    return { text: reply.content, audio: speech.audio };
   }
 
   async replyToDeviceMessage(device: DeviceEntity, dto: DeviceMessageDto) {
@@ -2250,21 +2319,14 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     type: DeviceCommandEntity['type'],
     payload: Record<string, unknown>,
   ) {
-    return this.commandRepository.save(
-      this.commandRepository.create({
-        deviceId,
-        type,
-        payload,
-        acknowledgedAt: null,
-      }),
-    );
+    return this.deviceIntegration.enqueue(deviceId, type, payload);
   }
 
   async queueAlarmSyncForDevice(deviceId: string, userId: string) {
     const device = await this.deviceRepository.findOne({
       where: { id: deviceId, ownerUserId: userId },
     });
-    if (!device) return null;
+    if (!device || device.protocolProfile !== 'legacy') return null;
 
     const alarms = await this.alarmRepository.find({
       where: { deviceId, userId, enabled: true },
@@ -2459,7 +2521,7 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         if (!device) continue;
         const occurrence = snoozeDue && !scheduledDue ? 'snooze' : 'scheduled';
 
-        if (this.supportsOfflineAlarmScheduler(device.firmwareVersion)) {
+        if (this.supportsOfflineAlarmScheduler(device)) {
           alarm.lastTriggeredAt = now;
           alarm.lifecycleStatus = 'ringing';
           alarm.ringingStartedAt = now;
@@ -2571,7 +2633,9 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     return alarm.soundTitle;
   }
 
-  private supportsOfflineAlarmScheduler(firmwareVersion: string) {
+  private supportsOfflineAlarmScheduler(device: DeviceEntity) {
+    if (device.protocolProfile !== 'legacy') return device.capabilities?.offlineAlarms === true;
+    const firmwareVersion = device.firmwareVersion;
     const match = /^(\d+)\.(\d+)/.exec(firmwareVersion);
     if (!match) return false;
     const major = Number(match[1]);
@@ -2616,6 +2680,7 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
           where: { id: reminder.deviceId },
         });
         if (!device) continue;
+        if (device.protocolProfile === R1M_PROFILE) { await this.deviceIntegration.triggerCloudReminder(reminder.id, device.id, now); continue; }
         const character = device.characterId
           ? await this.characterRepository.findOne({ where: { id: device.characterId } })
           : null;
@@ -2777,7 +2842,7 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private toDeviceView(device: DeviceEntity, characters: CharacterEntity[]): DeviceView {
+  private async toDeviceView(device: DeviceEntity, characters: CharacterEntity[]): Promise<DeviceView> {
     const isOnline = this.isDeviceOnline(device);
     const character = characters.find((item) => item.id === device.characterId) ?? null;
     const nfcCharacter =
@@ -2787,6 +2852,7 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     return {
       id: device.id,
       hardwareId: device.hardwareId,
+      referenceVoiceAvailable: this.deviceIntegration.canUseReferenceVoice(device),
       name: device.name,
       firmwareVersion: device.firmwareVersion,
       characterId: device.characterId,
@@ -2801,13 +2867,27 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
               characterName: nfcCharacter?.name ?? null,
             }
           : null,
+      nfcState: device.protocolProfile === R1M_PROFILE ? { present: !!device.lastNfcTagUid, uid: device.lastNfcTagUid, lastSeenAt: device.lastNfcAt?.toISOString() ?? null, matched: !!device.lastNfcMatchedCharacterId, characterId: device.lastNfcMatchedCharacterId } : undefined,
+      nfcSimulator: device.protocolProfile === R1M_PROFILE && /SIM/.test(device.hardwareId) && process.env.R1M_DEV_ENABLED === 'true' && /_mqtt_(dev|test)$/.test(process.env.DB_DATABASE || ''),
+      connectivity: this.deviceIntegration.r1mConnectivity(device),
       status: isOnline ? 'online' : 'offline',
       lastSeenAt: device.lastSeenAt?.toISOString() ?? null,
       volume: device.volume,
+      desiredVolume: device.desiredVolume,
+      protocolProfile: device.protocolProfile,
+      capabilities: device.capabilities ?? { setVolume: true, conversation: true, nfc: true, offlineAlarms: this.supportsOfflineAlarmScheduler(device) },
+      volumeCommand: await this.deviceIntegration.latestVolumeCommand(device.id),
+      speechCommand: device.protocolProfile === R1M_PROFILE ? await this.deviceIntegration.latestSpeechCommand(device.id) : null,
+      identifyCommand: device.protocolProfile === R1M_PROFILE ? await this.deviceIntegration.latestIdentifyCommand(device.id) : null,
     };
   }
 
   private isDeviceOnline(device: DeviceEntity) {
+    if (device.protocolProfile === R1M_PROFILE) return this.deviceIntegration.r1mConnectivity(device)?.network === 'online';
+    if (device.protocolProfile === PARTNER_SIM_PROFILE) {
+      return process.env.PARTNER_MQTT_ENABLED === 'true' && device.mqttOnline && device.lastSeenAt !== null &&
+        Date.now() - device.lastSeenAt.getTime() < positiveSetting('PARTNER_MQTT_PRESENCE_TIMEOUT_MS', 30000);
+    }
     const onlineWindowSeconds = Number(
       process.env.DEVICE_ONLINE_WINDOW_SECONDS ?? 45,
     );
@@ -2822,7 +2902,14 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       { id: this.demoUser.id, displayName: this.demoUser.displayName },
       ['id'],
     );
-    const characterSeeds: Array<Partial<CharacterEntity> & Pick<CharacterEntity, 'id'>> = [];
+    const referenceVoice = (process.env.PARTNER_VOICE_ENABLED === 'true' || process.env.R1M_DEV_ENABLED === 'true') && process.env.MQTT_SIMULATOR_FIXTURES === 'true' && /_mqtt_(dev|test)$/.test(process.env.DB_DATABASE || '');
+    const characterSeeds: Array<Partial<CharacterEntity> & Pick<CharacterEntity, 'id'>> = referenceVoice ? [{
+      id: 'reference-voice-character', name: '语音联调角色', description: '用于参考底座语音联调', accentColor: '#789432',
+      backgroundImageUrl: null, voiceId: process.env.REFERENCE_VOICE_TTS_VOICE || 'longanyang',
+      ttsModel: process.env.REFERENCE_VOICE_TTS_MODEL || 'cosyvoice-v3-flash', greeting: '你好，我们开始语音联调吧。',
+      prompt: '你是一个友善的手办语音助手。用一句简短的中文回答，不超过二十个字。', nfcTagUid: null,
+    }] : [];
+    if (referenceVoice && process.env.R1M_DEV_ENABLED === 'true') characterSeeds.push({ ...characterSeeds[0], id: 'reference-nfc-character', name: 'NFC 联调角色', greeting: '你好，手办身份已经识别。' });
     for (const seed of characterSeeds) {
       const exists = await this.characterRepository.exist({ where: { id: seed.id } });
       if (!exists) {

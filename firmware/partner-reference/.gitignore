@@ -1,0 +1,4 @@
+reference_config.h
+sdkconfig
+sdkconfig.old
+managed_components/

@@ -1,5 +1,11 @@
 # 屿宙AI手办 MVP
 
+第二轮新增真实自定义 BLE 配网、设备启动鉴权、认领和 ESP32-S3 参考目标，操作见 [第二轮真机联调](docs/partner-phase2.md)。
+
+第三轮新增参考 MQTT/UDP/Opus 语音、APP 文件调试/试听及打断，启动 `npm run dev:partner -- --voice`，见 [第三轮语音联调](docs/partner-phase3.md)。
+
+合作方 MQTT 接入第一轮已实现 APP 音量控制、独立 A/B 模拟设备和异步执行回执。运行 `npm run dev:partner` 启动隔离联调环境，详见 [MQTT 联调说明](docs/mqtt-phase1.md)；整体改造顺序见 [合作方接入方案](docs/partner-device-integration-plan.md)。
+
 这是「屿宙AI手办」软硬件联调版本，包含：
 
 - `apps/api`：NestJS 10 后端
@@ -196,3 +202,17 @@ PSRAM、RGB 灯、ST7789 屏幕、HT517 功放、扬声器和 INMP441 麦克风�
 | `figure_device_events` | NFC UID、按键、唤醒、播放完成和错误等设备事件 |
 
 设备密钥和设备会话 Token 均以 SHA-256 哈希保存，API 响应不会返回数据库中的密钥哈希。
+
+R1M OTA / WebSocket v1 与 HTTP 旁路联调：见 [R1M 收敛第一轮](docs/partner-phase4-r1m-ws.md)。启动 `npm run dev:partner -- --voice --r1m`，回归 `npm run test:r1m`。正式 MQTT/UDP 和出厂激活仍需合作方确认资料。
+
+我方 MQTT/UDP + 开发 HMAC 激活已落地，见 [公司 R1M 联调协议提案 v1](docs/company-r1m-proposal-v1.md)；`npm run simulate:r1m-mqtt -- --wav=/absolute/path/input.wav` 可独立设备调试。该契约供合作方参考确认。
+
+R1M 业务示例与 APP 真机验证：[定位底座业务闭环](docs/partner-phase6-business.md)。
+
+APP 主动播报及停止播放对接：[阶段七](docs/partner-phase7-app-speech.md)。
+
+R1M 到点播报与调度结果：[云端定时提醒](docs/partner-phase8-cloud-reminders.md)。
+
+R1M NFC 标签绑定、设备事件与自动角色切换：[阶段九对接说明](docs/partner-phase9-nfc.md)。
+
+合作方交付入口：[统一对接说明](docs/partner-handoff.md)、[参考模拟器](apps/device-simulator/README.md)、[共同验收流程](docs/partner-acceptance.md)。`npm run accept:partner` 生成本地验收报告，全部通过后 `npm run export:partner` 导出参考源码包。

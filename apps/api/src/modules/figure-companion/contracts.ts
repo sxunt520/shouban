@@ -1,3 +1,4 @@
+import type { CommandStatus, DeviceCapabilities } from '../device-integration/partner-profile';
 export type DeviceStatus = 'online' | 'offline';
 export type ReminderRepeat = 'none' | 'daily';
 export type ReminderKind = 'reminder' | 'alarm';
@@ -8,7 +9,8 @@ export type CommandType =
   | 'start_listening'
   | 'sync_alarms'
   | 'control_alarm'
-  | 'set_volume';
+  | 'set_volume'
+  | 'identify_device';
 
 export interface AlarmSyncStatus {
   state: 'idle' | 'pending' | 'syncing' | 'synced' | 'failed';
@@ -78,6 +80,19 @@ export interface DeviceView {
   status: DeviceStatus;
   lastSeenAt: string | null;
   volume: number;
+  desiredVolume: number | null;
+  protocolProfile: string;
+  capabilities: DeviceCapabilities;
+  referenceVoiceAvailable: boolean;
+  connectivity?: { network: 'online' | 'unknown'; controlReachable: boolean; voiceActive: boolean; lastEvidenceAt: string | null };
+  nfcSimulator?: boolean;
+  nfcState?: { present: boolean; uid: string | null; lastSeenAt: string | null; matched: boolean; characterId: string | null };
+  speechCommand?: { id: string; text: string; status: CommandStatus; phase: string; errorMessage: string | null; completedAt: string | null } | null;
+  identifyCommand?: { id: string; status: CommandStatus; errorMessage: string | null; completedAt: string | null } | null;
+  volumeCommand: {
+    id: string; status: CommandStatus; requestedVolume: number; revision: number | null;
+    errorMessage: string | null; expiresAt: string | null; completedAt: string | null;
+  } | null;
 }
 
 export interface Reminder {

@@ -1,3 +1,4 @@
+import { registerR1mVoiceWebSocket } from './modules/figure-companion/r1m-voice-websocket';
 import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -9,7 +10,8 @@ import { registerVoiceRecognitionWebSocket } from './modules/figure-companion/vo
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.setGlobalPrefix('v1');
+  app.enableShutdownHooks();
+  app.setGlobalPrefix('v1', { exclude: ['api/zckj/deviceCommands', 'api/zckj/deviceCommands/ack', 'api/zckj/deviceEventReport'] });
   app.use(
     '/v1/device/conversation/audio',
     raw({ type: ['audio/wav', 'application/octet-stream'], limit: '512kb' }),
@@ -24,6 +26,7 @@ async function bootstrap() {
   );
   registerConversationWebSocket(app);
   registerDeviceVoiceWebSocket(app);
+  registerR1mVoiceWebSocket(app);
   registerVoiceRecognitionWebSocket(app);
 
   const port = Number(process.env.PORT ?? 3000);

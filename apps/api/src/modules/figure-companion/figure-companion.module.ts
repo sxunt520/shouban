@@ -1,3 +1,7 @@
+import { R1mMqttVoiceService } from './r1m-mqtt-voice.service';
+import { R1mVoiceService } from './r1m-voice.service';
+import { PartnerVoiceService } from './partner-voice.service';
+import { PartnerVoiceController } from './partner-voice.controller';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DeviceAuthGuard, UserAuthGuard } from './auth.guards';
@@ -16,10 +20,12 @@ import { AlarmsController } from './alarms.controller';
 import { AlarmSoundsController } from './alarm-sounds.controller';
 import { AlarmSoundService } from './alarm-sound.service';
 import { VoiceRecognitionHub } from './voice-recognition-hub';
+import { DeviceIntegrationModule } from '../device-integration/device-integration.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature(databaseEntities)],
+  imports: [TypeOrmModule.forFeature(databaseEntities), DeviceIntegrationModule],
   controllers: [
+    PartnerVoiceController,
     AuthController,
     CharactersController,
     DevicesController,
@@ -30,6 +36,9 @@ import { VoiceRecognitionHub } from './voice-recognition-hub';
     AudioController,
   ],
   providers: [
+    R1mVoiceService,
+    R1mMqttVoiceService,
+    PartnerVoiceService,
     StoreService,
     TtsService,
     AsrService,

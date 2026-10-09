@@ -9,7 +9,7 @@ import { FigureCompanionModule } from './modules/figure-companion/figure-compani
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '../../.env'],
+      envFilePath: process.env.FIGURE_ENV_FILE ? [process.env.FIGURE_ENV_FILE] : ['.env', '../../.env'],
     }),
     TypeOrmModule.forRoot({
       type: 'mysql',

@@ -14,6 +14,7 @@ import {
   ReminderKind,
   ReminderRepeat,
 } from './contracts';
+import type { CommandStatus, DeviceCapabilities } from '../device-integration/partner-profile';
 
 @Entity('figure_users')
 export class UserEntity {
@@ -133,6 +134,37 @@ export class DeviceEntity {
   @Column({ type: 'tinyint', unsigned: true, default: 60 })
   volume: number;
 
+  @Column({ type: 'varchar', length: 40, default: 'legacy' })
+  protocolProfile: string;
+
+  @Index({ unique: true })
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  externalDeviceId: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  clientUuid: string | null;
+
+  @Column({ type: 'simple-json', nullable: true })
+  capabilities: DeviceCapabilities | null;
+
+  @Column({ type: 'tinyint', unsigned: true, nullable: true })
+  desiredVolume: number | null;
+
+  @Column({ type: 'int', unsigned: true, default: 0 })
+  controlRevision: number;
+
+  @Column({ type: 'int', unsigned: true, default: 0 })
+  reportedRevision: number;
+
+  @Column({ type: 'boolean', default: false })
+  mqttOnline: boolean;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  mqttConnectionId: string | null;
+
+  @Column({ type: 'int', unsigned: true, default: 0 })
+  mqttSequence: number;
+
   @Column({ type: 'varchar', length: 20, nullable: true })
   lastNfcTagUid: string | null;
 
@@ -141,6 +173,11 @@ export class DeviceEntity {
 
   @Column({ type: 'varchar', length: 64, nullable: true })
   lastNfcMatchedCharacterId: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  lastNfcConnectionId: string | null;
+  @Column({ type: 'int', unsigned: true, default: 0 })
+  lastNfcSequence: number;
 
   @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt: Date;
@@ -201,6 +238,15 @@ export class ReminderEntity {
 
   @Column({ type: 'datetime', precision: 3, nullable: true })
   lastTriggeredAt: Date | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  lastRunStatus: string | null;
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  lastRunReason: string | null;
+  @Column({ type: 'char', length: 36, nullable: true })
+  lastCommandId: string | null;
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  lastOccurrenceAt: Date | null;
 
   @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt: Date;
@@ -360,6 +406,7 @@ export class AlarmSoundEntity {
 }
 
 @Entity('figure_device_commands')
+@Index(['deviceId', 'status', 'createdAt'])
 export class DeviceCommandEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -378,6 +425,7 @@ export class DeviceCommandEntity {
       'sync_alarms',
       'control_alarm',
       'set_volume',
+      'identify_device',
     ],
   })
   type: CommandType;
@@ -389,11 +437,39 @@ export class DeviceCommandEntity {
   @Column({ type: 'datetime', precision: 3, nullable: true })
   acknowledgedAt: Date | null;
 
+  @Column({ type: 'varchar', length: 16, default: 'pending' })
+  status: CommandStatus;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  requestedByUserId: string | null;
+
+  @Column({ type: 'int', unsigned: true, nullable: true })
+  revision: number | null;
+
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  expiresAt: Date | null;
+
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  lastDispatchedAt: Date | null;
+
+  @Column({ type: 'int', unsigned: true, default: 0 })
+  attempts: number;
+
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  completedAt: Date | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  failureReason: string | null;
+
+  @Column({ type: 'simple-json', nullable: true })
+  result: Record<string, unknown> | null;
+
   @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt: Date;
 }
 
 @Entity('figure_device_events')
+@Index(['deviceId', 'externalEventId'], { unique: true })
 export class DeviceEventEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -406,6 +482,9 @@ export class DeviceEventEntity {
   @Column({ type: 'varchar', length: 80 })
   type: string;
 
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  externalEventId: string | null;
+
   @Column({ type: 'simple-json' })
   payload: Record<string, unknown>;
 
@@ -413,8 +492,19 @@ export class DeviceEventEntity {
   createdAt: Date;
 }
 
+@Entity('figure_nfc_bindings')
+@Index(['userId', 'uid'], { unique: true })
+export class NfcBindingEntity {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column({ type: 'varchar', length: 64 }) userId: string;
+  @Column({ type: 'varchar', length: 20 }) uid: string;
+  @Column({ type: 'varchar', length: 64 }) characterId: string;
+  @CreateDateColumn({ type: 'datetime', precision: 3 }) createdAt: Date;
+}
+
 export const databaseEntities = [
   UserEntity,
+  NfcBindingEntity,
   CharacterEntity,
   ConversationMessageEntity,
   DeviceEntity,

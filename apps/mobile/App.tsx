@@ -1,7 +1,10 @@
+import { R1mNfcPanel } from './src/screens/R1mNfcPanel';
+import { R1mRemindersPanel } from './src/screens/R1mRemindersPanel';
+import { R1mDevicePanel, deviceConnectionLabel } from './src/screens/R1mDevicePanel';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,6 +24,10 @@ import {
   normalizeApiBaseUrl,
   saveApiBaseUrl,
 } from './src/api';
+import { referenceVoiceSelfTest } from './src/voice-self-test';
+import { referenceSelfTest } from './src/reference-self-test';
+import { PartnerVoicePanel } from './src/screens/PartnerVoicePanel';
+import { PartnerSetup } from './src/screens/PartnerSetup';
 import { FigureFlow } from './src/screens/FigureFlow';
 import { palette } from './src/theme';
 import {
@@ -59,27 +66,37 @@ export default function App() {
   const [error, setError] = useState('');
   const [apiBaseUrl, setApiBaseUrl] = useState(API_BASE_URL);
 
-  const device = devices[0] ?? null;
+  const [referenceTrace, setReferenceTrace] = useState<string[]>([]);
+  const [partnerSetup, setPartnerSetup] = useState(false);
+  const [activeDeviceId, setActiveDeviceId] = useState<string | null>(null);
+  const activeDeviceRef = useRef<string | null>(null);
+  const refreshRequestRef = useRef(0);
+  const device = devices.find(item => item.id === activeDeviceId) ?? null;
 
   const refreshWithToken = useCallback(
     async (activeToken: string) => {
       if (!activeToken) return;
+      const requestId = ++refreshRequestRef.current;
       const [nextCharacters, nextDevices, nextReminders] = await Promise.all([
         api.listCharacters(activeToken),
         api.listDevices(activeToken),
         api.listReminders(activeToken),
       ]);
+      if (requestId !== refreshRequestRef.current) return;
       setCharacters(nextCharacters);
       setDevices(nextDevices);
       setReminders(nextReminders);
 
-      const firstDevice = nextDevices[0] ?? null;
+      const firstDevice = nextDevices.find(item => item.id === activeDeviceRef.current) ?? nextDevices[0] ?? null;
+      activeDeviceRef.current = firstDevice?.id ?? null;
+      setActiveDeviceId(firstDevice?.id ?? null);
       if (firstDevice) {
         const [nextCommands, nextEvents, nextMessages] = await Promise.all([
           api.listDeviceCommands(activeToken, firstDevice.id),
           api.listDeviceEvents(activeToken, firstDevice.id),
           api.listConversationMessages(activeToken, firstDevice.id),
         ]);
+        if (requestId !== refreshRequestRef.current || activeDeviceRef.current !== firstDevice.id) return;
         setCommands(nextCommands);
         setEvents(nextEvents);
         setMessages(nextMessages);
@@ -132,6 +149,20 @@ export default function App() {
     }, 5000);
     return () => clearInterval(timer);
   }, [refresh, token]);
+
+  useEffect(() => {
+    if (!token) return;
+    void referenceSelfTest(token, setReferenceTrace, async id => { activeDeviceRef.current = id; setActiveDeviceId(id); await refreshWithToken(token); }).catch(error => setError(error instanceof Error ? error.message : '真机测试失败'));
+    void referenceVoiceSelfTest(token, setReferenceTrace, async id => { activeDeviceRef.current = id; setActiveDeviceId(id); await refreshWithToken(token); }).catch(error => setError(error instanceof Error ? error.message : '语音测试失败'));
+  }, [token, refreshWithToken]);
+
+  function selectDevice(id: string) {
+    if (busy || id === activeDeviceRef.current) return;
+    activeDeviceRef.current = id;
+    setActiveDeviceId(id);
+    setCommands([]); setEvents([]); setMessages([]); setError('');
+    void refreshWithToken(token).catch(caught => setError(caught instanceof Error ? caught.message : '刷新设备失败'));
+  }
 
   async function perform(action: () => Promise<unknown>, message?: string) {
     try {
@@ -186,7 +217,11 @@ export default function App() {
       >
         <Tabs.Screen name="AI手办">
           {({ navigation }) => (
-            <FigureFlow
+            device?.capabilities?.conversation === false ? (
+              <SafeAreaView style={styles.centered}>
+                <EmptyCard title={device.protocolProfile === 'r1m-v1' ? '请在底座发起语音对话' : device.referenceVoiceAvailable ? '请在设备页进行语音联调' : '当前底座支持音量控制'} body={device.protocolProfile === 'r1m-v1' ? '在设备页选择角色和设置音量，然后与底座交互。' : '请在设备页使用当前底座支持的功能。'} action="返回设备" onPress={() => navigation.navigate('设备')} />
+              </SafeAreaView>
+            ) : <FigureFlow
               device={device}
               messages={messages}
               token={token}
@@ -204,6 +239,24 @@ export default function App() {
               error={error}
               onClearError={() => setError('')}
             >
+              {referenceTrace.length > 0 ? <View style={styles.panel}><Text style={styles.formTitle}>真机联调记录</Text>{referenceTrace.map((line, i) => <Text key={i} style={styles.formHelp}>{line}</Text>)}</View> : null}
+              {partnerSetup ? <PartnerSetup token={token} onClose={() => setPartnerSetup(false)} onBound={async id => { activeDeviceRef.current = id; setActiveDeviceId(id); await refresh(); }} /> : <>
+              <PrimaryButton label="添加合作方底座" onPress={() => setPartnerSetup(true)} />
+              {devices.length > 0 ? (
+                <View style={styles.panel}>
+                  <Text style={styles.formTitle}>当前设备</Text>
+                  {devices.map(item => (
+                    <Pressable key={item.id} disabled={busy} accessibilityRole="radio" accessibilityState={{ checked: item.id === activeDeviceId }}
+                      onPress={() => selectDevice(item.id)}
+                      style={[styles.networkSelector, item.id === activeDeviceId && styles.networkSelected]}>
+                      <Text style={styles.formHelp}>{item.id === activeDeviceId ? '●' : '○'} {item.name} · {deviceConnectionLabel(item)}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+              {device?.protocolProfile === 'r1m-v1' ? <R1mDevicePanel key={device.id} token={token} device={device} characters={characters} onChanged={refresh} /> : null}
+              {device?.protocolProfile === 'r1m-v1' ? <R1mNfcPanel key={`nfc-${device.id}`} token={token} device={device} characters={characters} onChanged={refresh} /> : null}
+              {device?.referenceVoiceAvailable ? <PartnerVoicePanel key={device.id} token={token} device={device} characters={characters} onChanged={refresh} /> : null}
               <HomeScreen
                 token={token}
                 device={device}
@@ -216,6 +269,7 @@ export default function App() {
                 onAction={perform}
                 onNeedBind={() => navigation.navigate('AI手办')}
               />
+              </>}
             </DebugScreenFrame>
           )}
         </Tabs.Screen>
@@ -228,12 +282,14 @@ export default function App() {
               error={error}
               onClearError={() => setError('')}
             >
-              <ReminderScreen
+              {device?.protocolProfile === 'r1m-v1' ? <R1mRemindersPanel key={device.id} token={token} device={device} reminders={reminders} onChanged={refresh} /> : device?.capabilities?.offlineAlarms === false && device.protocolProfile !== 'legacy' ? (
+                <Text style={styles.formHelp}>当前设备接入尚未支持提醒和闹钟。</Text>
+              ) : <ReminderScreen
                 token={token}
                 device={device}
                 reminders={reminders}
                 onAction={perform}
-              />
+              />}
             </DebugScreenFrame>
           )}
         </Tabs.Screen>
@@ -277,6 +333,54 @@ function DebugScreenFrame({
         <Text style={styles.endpoint}>API：{getApiBaseUrl()}</Text>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+const commandStatusLabels = {
+  pending: '等待设备', dispatched: '正在设置，等待回执', succeeded: '设备已确认',
+  failed: '执行失败', expired: '等待回执超时', cancelled: '已取消',
+};
+
+function commandStatusText(command: DeviceCommand) {
+  return command.acknowledgedAt ? '设备已确认' : commandStatusLabels[command.status ?? 'pending'];
+}
+
+function VolumeControl({ device, token, onAction }: {
+  device: Device; token: string;
+  onAction: (action: () => Promise<unknown>, message?: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(String(device.desiredVolume ?? device.volume));
+  const [sending, setSending] = useState(false);
+  useEffect(() => { setDraft(String(device.desiredVolume ?? device.volume)); }, [device.id]);
+  const value = Number(draft);
+  const valid = draft.trim() !== '' && Number.isInteger(value) && value >= 0 && value <= 100;
+  const command = device.volumeCommand;
+  async function submit() {
+    if (sending || !valid) return;
+    setSending(true);
+    try { await onAction(() => api.updateVolume(token, device.id, value)); }
+    finally { setSending(false); }
+  }
+  return (
+    <>
+      <SectionTitle title="音量" subtitle="设备执行并回执后确认实际音量" />
+      <View style={styles.panel}>
+        <Text style={styles.volumeText}>设备实际音量：{device.volume}%</Text>
+        <View style={styles.volumeRow}>
+          <SecondaryButton label="－" onPress={() => setDraft(String(Math.max(0, (valid ? value : device.volume) - 10)))} />
+          <TextInput accessibilityLabel="期望音量" style={[styles.input, { width: 90, textAlign: 'center' }]}
+            keyboardType="number-pad" value={draft} onChangeText={setDraft} maxLength={3} />
+          <SecondaryButton label="＋" onPress={() => setDraft(String(Math.min(100, (valid ? value : device.volume) + 10)))} />
+        </View>
+        <PrimaryButton label={sending ? '正在提交…' : '设置音量'} disabled={sending || !valid || device.capabilities?.setVolume === false} onPress={() => void submit()} />
+        {command ? (
+          <View accessibilityLiveRegion="polite">
+            <Text style={styles.formHelp}>请求 {command.requestedVolume}% · {commandStatusLabels[command.status]}</Text>
+            {command.errorMessage ? <Text style={styles.errorText}>{command.errorMessage}</Text> : null}
+          </View>
+        ) : <Text style={styles.formHelp}>输入 0–100，提交后等待设备确认。</Text>}
+      </View>
+    </>
   );
 }
 
@@ -370,7 +474,7 @@ function HomeScreen({
 
   const connectionSettings = (
     <>
-      <SectionTitle title="连接设置" subtitle="换网络时修改，配网会同步到智能底座" />
+      <SectionTitle title="连接设置" subtitle="{device?.protocolProfile && device.protocolProfile !== 'legacy' ? '修改 APP 连接地址；底座云端地址由设备配置决定' : '换网络时修改，配网会同步到智能底座'}" />
       <View style={styles.panel}>
         <FieldLabel label="后端服务地址" />
         <TextInput
@@ -391,6 +495,31 @@ function HomeScreen({
       </View>
     </>
   );
+
+  if (device && device.protocolProfile && device.protocolProfile !== 'legacy') {
+    return (
+      <>
+        <View style={styles.panel}>
+          <Text style={styles.cardTitle}>{device.name}</Text>
+          <Text style={styles.cardBody}>{deviceConnectionLabel(device)} · 设备确认音量 {device.volume}%</Text>
+          <Text style={styles.cardBody}>{device.hardwareId} · {device.protocolProfile === 'r1m-v1' ? 'R1M 联调设备' : device.hardwareId.startsWith('REF-') ? '实体参考设备' : '本地 MQTT 模拟接入'}</Text>
+          <Text style={styles.cardBody}>最近状态：{device.connectivity?.lastEvidenceAt ? new Date(device.connectivity.lastEvidenceAt).toLocaleTimeString() : lastSeenText}</Text>
+          <Text style={styles.cardBody}>{device.protocolProfile === 'r1m-v1' ? '可选择角色、识别 NFC 手办、设置音量并进行语音对话。' : device.referenceVoiceAvailable ? '可设置音量，并在上方面板进行语音联调。' : '当前支持音量控制。'} 实体读卡器和离线闹钟需合作方实现。</Text>
+        </View>
+        <VolumeControl device={device} token={token} onAction={onAction} />
+        <SectionTitle title="执行记录" subtitle="设备回执后确认结果" />
+        <View style={styles.stack}>
+          {commands.length === 0 ? <Text style={styles.emptyText}>暂无指令</Text> : commands.slice(0, 10).map(command => (
+            <TimelineCard key={command.id} title={formatCommandType(command.type)}
+              subtitle={`${formatCommandPayload(command.payload)}${command.failureReason ? ` · ${command.failureReason}` : ''}`}
+              status={commandStatusText(command)}
+              tone={command.acknowledgedAt ? 'success' : ['failed', 'expired', 'cancelled'].includes(command.status ?? '') ? 'muted' : 'pending'} />
+          ))}
+        </View>
+        {connectionSettings}
+      </>
+    );
+  }
 
   if (!device) {
     return (
@@ -420,7 +549,7 @@ function HomeScreen({
             ]}
           >
             <Text style={styles.statusText}>
-              {device.status === 'online' ? '在线' : '离线'}
+              {deviceConnectionLabel(device)}
             </Text>
           </View>
         </View>
@@ -588,26 +717,7 @@ function HomeScreen({
         />
       </View>
 
-      <SectionTitle title="音量" />
-      <View style={[styles.panel, styles.volumeRow]}>
-        <SecondaryButton
-          label="－"
-          onPress={() =>
-            void onAction(() =>
-              api.updateVolume(token, device.id, Math.max(0, device.volume - 10)),
-            )
-          }
-        />
-        <Text style={styles.volumeText}>{device.volume}%</Text>
-        <SecondaryButton
-          label="＋"
-          onPress={() =>
-            void onAction(() =>
-              api.updateVolume(token, device.id, Math.min(100, device.volume + 10)),
-            )
-          }
-        />
-      </View>
+      <VolumeControl device={device} token={token} onAction={onAction} />
 
 
       <SectionTitle
@@ -689,8 +799,8 @@ function HomeScreen({
               subtitle={`${formatCommandPayload(command.payload)} · ${formatBeijingTime(
                 command.createdAt,
               )}`}
-              status={command.acknowledgedAt ? '已完成' : '等待设备'}
-              tone={command.acknowledgedAt ? 'success' : 'pending'}
+              status={commandStatusText(command)}
+              tone={command.acknowledgedAt ? 'success' : ['failed', 'expired', 'cancelled'].includes(command.status ?? '') ? 'muted' : 'pending'}
             />
           ))
         )}
@@ -1135,6 +1245,7 @@ function formatCommandType(type: DeviceCommand['type']) {
     speak_text: '测试播报',
     start_listening: '录音并识别',
     set_volume: '设置音量',
+    identify_device: '定位底座',
   };
   return labels[type] ?? type;
 }
@@ -1175,6 +1286,8 @@ function formatEventPayload(payload: Record<string, unknown>) {
 }
 
 const styles = StyleSheet.create({
+  networkSelector: { padding: 12, borderWidth: 1, borderColor: palette.border, borderRadius: 10, marginTop: 8 },
+  networkSelected: { borderColor: palette.primary, backgroundColor: '#F0FAF5' },
   safeArea: { flex: 1, backgroundColor: palette.canvas },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.canvas },
   loadingText: { color: palette.muted, marginTop: 14 },

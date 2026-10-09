@@ -1,0 +1,12 @@
+{
+  "name": "@figure/device-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "broker": "node src/broker.mjs",
+    "start": "node src/main.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": { "aedes": "^0.51.3", "dotenv": "^16.6.1", "mqtt": "^5.16.0" }
+}

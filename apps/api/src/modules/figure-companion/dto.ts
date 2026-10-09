@@ -18,6 +18,11 @@ import {
 import { ReminderKind, ReminderRepeat } from './contracts';
 
 export class BindDeviceDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(12)
+  externalDeviceId?: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(64)
@@ -323,4 +328,13 @@ export class SpeakTextDto {
   @IsNotEmpty()
   @MaxLength(500)
   text: string;
+}
+
+export class R1mNfcBindingDto {
+  @IsString() @MaxLength(40) uid: string;
+  @IsString() @IsNotEmpty() @MaxLength(64) characterId: string;
+}
+export class R1mNfcSimulationDto {
+  @IsBoolean() present: boolean;
+  @IsOptional() @IsString() @MaxLength(40) uid?: string;
 }

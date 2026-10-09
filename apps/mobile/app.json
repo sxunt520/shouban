@@ -10,7 +10,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#FAF9F7"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "plugins": [
       [
         "expo-camera",
@@ -22,6 +24,14 @@
         "expo-av",
         {
           "microphonePermission": "用于录制并制作屿宙AI手办的自定义闹铃"
+        }
+      ],
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "bluetoothAlwaysPermission": "用于发现并配置智能底座的 Wi-Fi",
+          "neverForLocation": true
         }
       ]
     ],

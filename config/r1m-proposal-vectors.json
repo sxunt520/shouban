@@ -1,0 +1,35 @@
+{
+  "test_only": true,
+  "contract": "company-r1m-proposal-v1",
+  "udp_profile": "company-udp-ctr-hmac-v1",
+  "key": "000102030405060708090a0b0c0d0e0f",
+  "nonce": "101112131415161718191a1b1c1d1e1f",
+  "audio": [
+    {
+      "direction": "up",
+      "sequence": 1,
+      "timestamp": 0,
+      "payload": "112233445566778899aabbccddeeff00",
+      "packet": "01010010141516170000000000000001a6c00ab6f6d7e8a240ab0d87fe46220b5919fe3bebb50730b001815e85333ea3"
+    },
+    {
+      "direction": "down",
+      "sequence": 1,
+      "timestamp": 0,
+      "payload": "112233445566778899aabbccddeeff00",
+      "packet": "010100101415161700000000000000012895d0f3790e20e7998911e5f294fcf56ed8c73d671c5a126acf1e6cb03c5957"
+    },
+    {
+      "direction": "up",
+      "sequence": 2,
+      "timestamp": 0,
+      "payload": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "packet": "01010040141516170000000000000002d6914baa20d480ae7ab48b57ae851528a13108d220d63e571a2e8988b6c3b6a9facda0e58d982f8712ab5a7a6dc7310b2b8a3e28bc13ed38e9411308273a02319ed0ed0486804b2784631bd00a77ac82"
+    }
+  ],
+  "activation": {
+    "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "challenge": "r1m-development-challenge-001",
+    "hmac": "6b4407f49130bce84c5611085dd409f22afe1d4598444129f3b658e7a4e720fc"
+  }
+}
